@@ -153,7 +153,7 @@ function Update-WindowTitle {
     $script:TitleState.CurrentStep = $CurrentStep
 }
 
-# Progress tracking function
+# Step header function
 function Write-Progress-Step {
     param (
         [int]$Step,
@@ -162,57 +162,11 @@ function Write-Progress-Step {
         [string]$Status = "In Progress"
     )
 
-    # Update window title with current step
     Update-WindowTitle -CurrentStep "Step $Step of $TotalSteps : $StepName"
 
-    $PercentComplete = [math]::Round(($Step / $TotalSteps) * 100)
-    $ProgressBar = ""
-    $BarLength = 30
-    $FilledLength = [math]::Round(($PercentComplete / 100) * $BarLength)
-
-    for ($i = 0; $i -lt $BarLength; $i++) {
-        if ($i -lt $FilledLength) {
-            $ProgressBar += [char]0x2588  # Full block
-        }
-        else {
-            $ProgressBar += [char]0x2591  # Light shade
-        }
-    }
-
     Write-Host ""
-    Write-Host "========================================" -ForegroundColor Cyan
-    Write-Host "  $ProgressBar $PercentComplete%" -ForegroundColor Cyan
-    Write-Host "  Step $Step of $TotalSteps : $StepName" -ForegroundColor White
-    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "  ── Step $Step of $TotalSteps : $StepName" -ForegroundColor Cyan
     Write-Host ""
-}
-
-# Sub-progress function for operations within a step
-function Write-SubProgress {
-    param (
-        [int]$Current,
-        [int]$Total,
-        [string]$ItemName,
-        [string]$Status = "Processing"
-    )
-
-    # Note: Title updates removed to prevent bouncing - step-level only shows in title bar
-
-    $PercentComplete = [math]::Round(($Current / $Total) * 100)
-    $ProgressBar = ""
-    $BarLength = 20
-    $FilledLength = [math]::Round(($PercentComplete / 100) * $BarLength)
-
-    for ($i = 0; $i -lt $BarLength; $i++) {
-        if ($i -lt $FilledLength) {
-            $ProgressBar += [char]0x2588
-        }
-        else {
-            $ProgressBar += [char]0x2591
-        }
-    }
-
-    Write-Host "  [$ProgressBar] $PercentComplete% - $Status : $ItemName" -ForegroundColor Gray
 }
 
 $TotalSteps = 6
@@ -237,8 +191,10 @@ Write-Host ""
 Write-Host "  Scanning for installed modules..." -ForegroundColor Gray
 
 # Check for any Microsoft.Graph modules (stable - not Beta)
+# Checks both old PowerShellGet (Get-InstalledModule) and new PSResourceGet (Get-InstalledPSResource)
 $GraphModules = @()
 $GraphModules += Get-InstalledModule Microsoft.Graph* -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike "Microsoft.Graph.Beta*" }
+$GraphModules += Get-InstalledPSResource -Name "Microsoft.Graph*" -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike "Microsoft.Graph.Beta*" }
 $GraphPathModules = Get-Module -ListAvailable Microsoft.Graph* -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike "Microsoft.Graph.Beta*" }
 $HasGraph = ($GraphModules.Count -gt 0) -or ($GraphPathModules.Count -gt 0)
 $GraphVer = if ($GraphModules.Count -gt 0) { "v$($GraphModules[0].Version)" } elseif ($GraphPathModules.Count -gt 0) { "v$($GraphPathModules[0].Version) (path only)" } else { "" }
@@ -246,6 +202,7 @@ $GraphVer = if ($GraphModules.Count -gt 0) { "v$($GraphModules[0].Version)" } el
 # Check for any Microsoft.Graph.Beta modules
 $BetaModules = @()
 $BetaModules += Get-InstalledModule Microsoft.Graph.Beta* -ErrorAction SilentlyContinue
+$BetaModules += Get-InstalledPSResource -Name "Microsoft.Graph.Beta*" -ErrorAction SilentlyContinue
 $BetaPathModules = Get-Module -ListAvailable Microsoft.Graph.Beta* -ErrorAction SilentlyContinue
 $HasBeta = ($BetaModules.Count -gt 0) -or ($BetaPathModules.Count -gt 0)
 $BetaVer = if ($BetaModules.Count -gt 0) { "v$($BetaModules[0].Version)" } elseif ($BetaPathModules.Count -gt 0) { "v$($BetaPathModules[0].Version) (path only)" } else { "" }
@@ -253,6 +210,7 @@ $BetaVer = if ($BetaModules.Count -gt 0) { "v$($BetaModules[0].Version)" } elsei
 # Check for any Microsoft.Entra modules
 $EntraModules = @()
 $EntraModules += Get-InstalledModule Microsoft.Entra* -ErrorAction SilentlyContinue
+$EntraModules += Get-InstalledPSResource -Name "Microsoft.Entra*" -ErrorAction SilentlyContinue
 $EntraPathModules = Get-Module -ListAvailable Microsoft.Entra* -ErrorAction SilentlyContinue
 $HasEntra = ($EntraModules.Count -gt 0) -or ($EntraPathModules.Count -gt 0)
 $EntraVer = if ($EntraModules.Count -gt 0) { "v$($EntraModules[0].Version)" } elseif ($EntraPathModules.Count -gt 0) { "v$($EntraPathModules[0].Version) (path only)" } else { "" }
@@ -349,24 +307,22 @@ if ($LoadedModules) {
     $LoadedSuccess = 0
     $LoadedFailed = 0
 
-    Write-Host "  Found $LoadedTotal modules loaded in session..." -ForegroundColor Gray
-    Write-Host ""
-
     foreach ($Module in $LoadedModules) {
         $LoadedCounter++
-        Write-SubProgress -Current $LoadedCounter -Total $LoadedTotal -ItemName $Module -Status "Removing"
         try {
             Remove-Module -Name $Module -Force -ErrorAction Stop
-            Write-Host "    Removed: $Module" -ForegroundColor Green
             $LoadedSuccess++
         }
         catch {
-            Write-Host "    Failed: $Module" -ForegroundColor Yellow
             $LoadedFailed++
         }
     }
-    Write-Host ""
-    Write-Host "  Clear complete: $LoadedSuccess succeeded, $LoadedFailed failed." -ForegroundColor Green
+
+    if ($LoadedFailed -eq 0) {
+        Write-Host "  Cleared $LoadedTotal loaded module(s) from session." -ForegroundColor Green
+    } else {
+        Write-Host "  Cleared $LoadedSuccess of $LoadedTotal loaded module(s). $LoadedFailed could not be removed." -ForegroundColor Yellow
+    }
 }
 else {
     Write-Host "  No matching modules loaded in session." -ForegroundColor Green
@@ -381,15 +337,32 @@ $Iteration = 1
 $MaxIterations = 10
 
 do {
-    Write-Host "  === Iteration $Iteration ===" -ForegroundColor Blue
-    Write-Host ""
-
-    # Get installed modules using Get-InstalledModule (gallery-installed)
-    $InstalledModules = @()
+    # Get installed modules via old PowerShellGet (Get-InstalledModule)
+    $InstalledModulesOld = @()
     foreach ($Pattern in $script:ModulePatterns) {
-        $InstalledModules += Get-InstalledModule $Pattern -ErrorAction SilentlyContinue
+        $InstalledModulesOld += Get-InstalledModule $Pattern -ErrorAction SilentlyContinue
     }
-    $InstalledModules = $InstalledModules | Select-Object -Unique -Property Name, Version, @{N='ModuleBase';E={$_.InstalledLocation}}
+
+    # Get installed modules via new PSResourceGet (Get-InstalledPSResource)
+    $InstalledModulesNew = @()
+    foreach ($Pattern in $script:ModulePatterns) {
+        $InstalledModulesNew += Get-InstalledPSResource -Name $Pattern -ErrorAction SilentlyContinue
+    }
+
+    # Merge both lists, normalising to Name/Version/ModuleBase
+    $InstalledModules = @()
+    $InstalledModules += $InstalledModulesOld | Select-Object -Property Name, Version, @{N='ModuleBase';E={$_.InstalledLocation}}, @{N='Source';E={'Old'}}
+    foreach ($PSRMod in $InstalledModulesNew) {
+        $AlreadyListed = $InstalledModules | Where-Object { $_.Name -eq $PSRMod.Name -and $_.Version -eq $PSRMod.Version.ToString() }
+        if (-not $AlreadyListed) {
+            $InstalledModules += [PSCustomObject]@{
+                Name      = $PSRMod.Name
+                Version   = $PSRMod.Version.ToString()
+                ModuleBase = $PSRMod.InstalledLocation
+                Source    = 'New'
+            }
+        }
+    }
 
     # Get available modules using Get-Module -ListAvailable (catches modules not in gallery)
     $AvailableModules = @()
@@ -405,35 +378,61 @@ do {
         break
     }
 
-    Write-Host "  Found $(@($InstalledModules).Count) installed modules (PowerShell Gallery)" -ForegroundColor White
+    Write-Host "  Found $(@($InstalledModules).Count) installed modules (PowerShellGet + PSResourceGet)" -ForegroundColor White
     Write-Host "  Found $(@($AvailableModules).Count) modules in module paths" -ForegroundColor White
     Write-Host ""
 
-    # First, uninstall using Uninstall-Module for gallery-installed modules
+    # Uninstall gallery-installed modules — try PSResourceGet first, fall back to old PowerShellGet
     if ($InstalledModules) {
-        Write-Host "  Uninstalling gallery-installed modules..." -ForegroundColor Yellow
-        $Counter = 0
-        $TotalModules = @($InstalledModules).Count
-
+        # Group sub-modules by their root package
+        $InstallGroups = @{}
         foreach ($Module in $InstalledModules) {
-            $Counter++
-            Write-SubProgress -Current $Counter -Total $TotalModules -ItemName "$($Module.Name) v$($Module.Version)" -Status "Uninstalling"
-            try {
-                Uninstall-Module -Name $Module.Name -RequiredVersion $Module.Version -Force -ErrorAction Stop
-                Write-Host "    Uninstalled: $($Module.Name) v$($Module.Version)" -ForegroundColor Green
-            }
-            catch {
-                # Try uninstalling all versions
-                try {
-                    Uninstall-Module -Name $Module.Name -AllVersions -Force -ErrorAction Stop
-                    Write-Host "    Uninstalled: $($Module.Name) (all versions)" -ForegroundColor Green
-                }
-                catch {
-                    Write-Host "    Pending cleanup: $($Module.Name)" -ForegroundColor Yellow
-                }
-            }
+            $Root = if ($Module.Name -like "Microsoft.Graph.Beta*") { "Microsoft.Graph.Beta" }
+                    elseif ($Module.Name -like "Microsoft.Graph*") { "Microsoft.Graph" }
+                    elseif ($Module.Name -like "Microsoft.Entra*") { "Microsoft.Entra" }
+                    else { $Module.Name }
+            if (-not $InstallGroups.ContainsKey($Root)) { $InstallGroups[$Root] = [System.Collections.Generic.List[object]]::new() }
+            $InstallGroups[$Root].Add($Module)
         }
-        Write-Host ""
+
+        foreach ($Root in ($InstallGroups.Keys | Sort-Object)) {
+            Write-Host "  Uninstalling $Root..." -ForegroundColor Yellow
+            Write-Host "  (This removes all sub-modules)" -ForegroundColor Gray
+            Write-Host ""
+
+            $PendingCount = 0
+            foreach ($Module in $InstallGroups[$Root]) {
+                $Uninstalled = $false
+                try {
+                    Uninstall-PSResource -Name $Module.Name -Version $Module.Version -ErrorAction Stop
+                    $Uninstalled = $true
+                }
+                catch { }
+
+                if (-not $Uninstalled) {
+                    try {
+                        Uninstall-Module -Name $Module.Name -RequiredVersion $Module.Version -Force -ErrorAction Stop
+                        $Uninstalled = $true
+                    }
+                    catch {
+                        try {
+                            Uninstall-Module -Name $Module.Name -AllVersions -Force -ErrorAction Stop
+                            $Uninstalled = $true
+                        }
+                        catch { }
+                    }
+                }
+
+                if (-not $Uninstalled) { $PendingCount++ }
+            }
+
+            if ($PendingCount -eq 0) {
+                Write-Host "  $Root uninstalled successfully." -ForegroundColor Green
+            } else {
+                Write-Host "  ${Root}: $PendingCount sub-module(s) pending cleanup." -ForegroundColor Yellow
+            }
+            Write-Host ""
+        }
     }
 
     # Handle modules found via Get-Module -ListAvailable that aren't in the gallery
@@ -446,29 +445,46 @@ do {
         }
 
         if ($OrphanModules) {
-            Write-Host "  Removing orphaned module folders..." -ForegroundColor Yellow
-            $Counter = 0
-            $TotalOrphans = @($OrphanModules).Count
-
+            # Group by root module name
+            $OrphanGroups = @{}
             foreach ($Module in $OrphanModules) {
-                $Counter++
-                Write-SubProgress -Current $Counter -Total $TotalOrphans -ItemName "$($Module.Name) v$($Module.Version)" -Status "Deleting"
-                try {
-                    if (Test-Path $Module.ModuleBase) {
-                        Remove-Item -Path $Module.ModuleBase -Recurse -Force -ErrorAction Stop
-                        Write-Host "    Deleted: $($Module.ModuleBase)" -ForegroundColor Green
+                $Root = if ($Module.Name -like "Microsoft.Graph.Beta*") { "Microsoft.Graph.Beta" }
+                        elseif ($Module.Name -like "Microsoft.Graph*") { "Microsoft.Graph" }
+                        elseif ($Module.Name -like "Microsoft.Entra*") { "Microsoft.Entra" }
+                        else { $Module.Name }
+                if (-not $OrphanGroups.ContainsKey($Root)) { $OrphanGroups[$Root] = [System.Collections.Generic.List[object]]::new() }
+                $OrphanGroups[$Root].Add($Module)
+            }
+
+            foreach ($Root in ($OrphanGroups.Keys | Sort-Object)) {
+                Write-Host "  Removing $Root..." -ForegroundColor Yellow
+                Write-Host "  (This removes all sub-modules)" -ForegroundColor Gray
+                Write-Host ""
+
+                $FailCount = 0
+                foreach ($Module in $OrphanGroups[$Root]) {
+                    try {
+                        if (Test-Path $Module.ModuleBase) {
+                            Remove-Item -Path $Module.ModuleBase -Recurse -Force -ErrorAction Stop
+                        }
+                    }
+                    catch {
+                        Write-Host "    Failed to delete: $($Module.ModuleBase) - $_" -ForegroundColor Yellow
+                        $FailCount++
                     }
                 }
-                catch {
-                    Write-Host "    Failed to delete: $($Module.ModuleBase) - $_" -ForegroundColor Yellow
+
+                if ($FailCount -eq 0) {
+                    Write-Host "  $Root removed successfully." -ForegroundColor Green
+                } else {
+                    Write-Host "  ${Root}: $FailCount sub-module(s) could not be deleted." -ForegroundColor Yellow
                 }
+                Write-Host ""
             }
-            Write-Host ""
         }
     }
 
     # Force garbage collection to release any file locks
-    Write-Host "  Releasing file locks..." -ForegroundColor Gray
     [System.GC]::Collect()
     [System.GC]::WaitForPendingFinalizers()
     Start-Sleep -Seconds 2
@@ -519,18 +535,10 @@ if ($script:IncludeEntra) {
     $FolderPatterns += "Microsoft.Entra*"
 }
 
-$TotalPaths = $ModulePaths.Count
-$PathCounter = 0
 $LeftoverCount = 0
 $RemovedCount = 0
 
-Write-Host "  Scanning $TotalPaths module locations..." -ForegroundColor Gray
-Write-Host ""
-
 foreach ($Path in $ModulePaths) {
-    $PathCounter++
-    Write-SubProgress -Current $PathCounter -Total $TotalPaths -ItemName (Split-Path $Path -Leaf) -Status "Scanning"
-
     # Find all matching folders based on user selection
     $TargetFolders = @()
     foreach ($Pattern in $FolderPatterns) {
@@ -538,18 +546,33 @@ foreach ($Path in $ModulePaths) {
     }
 
     foreach ($Folder in $TargetFolders) {
-        Write-Host "    Found: $($Folder.FullName)" -ForegroundColor Yellow
-
-        # Delete everything inside the folder
+        # Delete version subfolders inside the module folder
         $FolderContents = Get-ChildItem -Path $Folder.FullName -Force -ErrorAction SilentlyContinue
+
+        if (-not $FolderContents) {
+            continue
+        }
+
         foreach ($Item in $FolderContents) {
             try {
                 Remove-Item -Path $Item.FullName -Recurse -Force -ErrorAction Stop
-                Write-Host "      Deleted: $($Item.Name)" -ForegroundColor Green
                 $RemovedCount++
             }
             catch {
-                Write-Host "      Could not delete: $($Item.Name) (may need admin rights or file is locked)" -ForegroundColor Red
+                $ErrorMsg = $_.Exception.Message
+                if ($ErrorMsg -match 'Access.*denied|locked|in use|being used') {
+                    Write-Host "      Locked:  $($Item.Name)" -ForegroundColor Red
+                    Write-Host "               A DLL is still loaded in this session." -ForegroundColor DarkGray
+                    Write-Host "               Close this window and re-run the script in a fresh PowerShell session." -ForegroundColor DarkGray
+                }
+                elseif ($ErrorMsg -match 'denied|privilege|unauthorized') {
+                    Write-Host "      Denied:  $($Item.Name)" -ForegroundColor Red
+                    Write-Host "               Run this script as Administrator." -ForegroundColor DarkGray
+                }
+                else {
+                    Write-Host "      Failed:  $($Item.Name)" -ForegroundColor Red
+                    Write-Host "               $ErrorMsg" -ForegroundColor DarkGray
+                }
                 $LeftoverCount++
             }
         }
@@ -557,9 +580,6 @@ foreach ($Path in $ModulePaths) {
 }
 
 # Second pass: Verify cleanup was complete
-Write-Host ""
-Write-Host "  Performing verification scan..." -ForegroundColor Gray
-
 $RemainingItems = @()
 foreach ($Path in $ModulePaths) {
     foreach ($Pattern in $FolderPatterns) {
@@ -575,18 +595,23 @@ foreach ($Path in $ModulePaths) {
     }
 }
 
-Write-Host ""
 if ($RemainingItems.Count -eq 0) {
-    Write-Host "  Folder cleanup complete. Deleted $RemovedCount items." -ForegroundColor Green
-    Write-Host "  Verification: All target module folders are now empty." -ForegroundColor Green
+    Write-Host "  Folder cleanup complete." -ForegroundColor Green
 }
 else {
-    Write-Host "  Warning: $($RemainingItems.Count) items could not be deleted:" -ForegroundColor Yellow
+    $LockedCount = $RemainingItems.Count
+    Write-Host "  $LockedCount item(s) could not be deleted:" -ForegroundColor Yellow
     foreach ($Remaining in $RemainingItems) {
         Write-Host "    - $Remaining" -ForegroundColor Yellow
     }
     Write-Host ""
-    Write-Host "  Try running PowerShell as Administrator, or manually delete these items." -ForegroundColor Yellow
+    Write-Host "  These are most likely DLL files still locked by this PowerShell session." -ForegroundColor Yellow
+    Write-Host "  To complete the cleanup:" -ForegroundColor Yellow
+    Write-Host "    1. Close this PowerShell window" -ForegroundColor White
+    Write-Host "    2. Open a new elevated PowerShell window" -ForegroundColor White
+    Write-Host "    3. Re-run this script" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  The fresh install in Step 4 will still proceed and may work regardless." -ForegroundColor DarkGray
 }
 
 # ============================================================
@@ -663,10 +688,13 @@ if ($InstallChoice -ne "0") {
 
 if ($InstallChoice -ne "0") {
     Write-Host ""
-    Write-Host "  Installing selected packages..." -ForegroundColor Gray
 
     $InstallSuccess = 0
     $InstallFailed = 0
+
+    # Suppress native Install-Module progress output
+    $PrevProgressPreference = $ProgressPreference
+    $ProgressPreference = 'SilentlyContinue'
 
     if ($script:InstallGraph) {
         Write-Host "  Installing Microsoft.Graph..." -ForegroundColor Yellow
@@ -674,12 +702,12 @@ if ($InstallChoice -ne "0") {
         Write-Host ""
         try {
             Install-Module Microsoft.Graph -Scope $script:InstallScope -Force -AllowClobber -ErrorAction Stop
-            Write-Host ""
             Write-Host "  Microsoft.Graph installed successfully." -ForegroundColor Green
             $InstallSuccess++
         }
         catch {
             Write-Host "  ERROR: Failed to install Microsoft.Graph - $_" -ForegroundColor Red
+            Write-Host "  Check your internet connection and try again." -ForegroundColor DarkGray
             $InstallFailed++
         }
         Write-Host ""
@@ -691,12 +719,12 @@ if ($InstallChoice -ne "0") {
         Write-Host ""
         try {
             Install-Module Microsoft.Graph.Beta -Scope $script:InstallScope -Force -AllowClobber -ErrorAction Stop
-            Write-Host ""
             Write-Host "  Microsoft.Graph.Beta installed successfully." -ForegroundColor Green
             $InstallSuccess++
         }
         catch {
             Write-Host "  ERROR: Failed to install Microsoft.Graph.Beta - $_" -ForegroundColor Red
+            Write-Host "  Check your internet connection and try again." -ForegroundColor DarkGray
             $InstallFailed++
         }
         Write-Host ""
@@ -708,16 +736,18 @@ if ($InstallChoice -ne "0") {
         Write-Host ""
         try {
             Install-Module Microsoft.Entra -Scope $script:InstallScope -Force -AllowClobber -ErrorAction Stop
-            Write-Host ""
             Write-Host "  Microsoft.Entra installed successfully." -ForegroundColor Green
             $InstallSuccess++
         }
         catch {
             Write-Host "  ERROR: Failed to install Microsoft.Entra - $_" -ForegroundColor Red
+            Write-Host "  Check your internet connection and try again." -ForegroundColor DarkGray
             $InstallFailed++
         }
         Write-Host ""
     }
+
+    $ProgressPreference = $PrevProgressPreference
 
     # Summary message
     Write-Host "  Install complete: $InstallSuccess succeeded, $InstallFailed failed." -ForegroundColor Green
@@ -761,13 +791,17 @@ $EntraModule = $null
 
 if ($script:InstallGraph) {
     $GraphModule = Get-InstalledModule Microsoft.Graph -ErrorAction SilentlyContinue
+    if (-not $GraphModule) { $GraphModule = Get-InstalledPSResource -Name "Microsoft.Graph" -ErrorAction SilentlyContinue | Sort-Object Version -Descending | Select-Object -First 1 }
     $AuthModule = Get-InstalledModule Microsoft.Graph.Authentication -ErrorAction SilentlyContinue
+    if (-not $AuthModule) { $AuthModule = Get-InstalledPSResource -Name "Microsoft.Graph.Authentication" -ErrorAction SilentlyContinue | Sort-Object Version -Descending | Select-Object -First 1 }
 }
 if ($script:InstallBeta) {
     $GraphBetaModule = Get-InstalledModule Microsoft.Graph.Beta -ErrorAction SilentlyContinue
+    if (-not $GraphBetaModule) { $GraphBetaModule = Get-InstalledPSResource -Name "Microsoft.Graph.Beta" -ErrorAction SilentlyContinue | Sort-Object Version -Descending | Select-Object -First 1 }
 }
 if ($script:InstallEntra) {
     $EntraModule = Get-InstalledModule Microsoft.Entra -ErrorAction SilentlyContinue
+    if (-not $EntraModule) { $EntraModule = Get-InstalledPSResource -Name "Microsoft.Entra" -ErrorAction SilentlyContinue | Sort-Object Version -Descending | Select-Object -First 1 }
 }
 
 # Stop the stopwatch
@@ -776,18 +810,6 @@ $ElapsedTime = $script:Stopwatch.Elapsed
 $TimeFormatted = "{0:D2}:{1:D2}:{2:D2}" -f $ElapsedTime.Hours, $ElapsedTime.Minutes, $ElapsedTime.Seconds
 
 Write-Host ""
-Write-Host "================================================" -ForegroundColor Cyan
-Write-Host "            INSTALLATION COMPLETE               " -ForegroundColor Cyan
-Write-Host "================================================" -ForegroundColor Cyan
-Write-Host ""
-
-# Final progress bar at 100%
-$FinalBar = [string]::new([char]0x2588, 30)
-Write-Host "  $FinalBar 100%" -ForegroundColor Green
-Write-Host ""
-Write-Host "  TOTAL TIME: $TimeFormatted" -ForegroundColor Cyan
-Write-Host ""
-
 Write-Host "  INSTALLED MODULES:" -ForegroundColor White
 Write-Host "  -------------------------------------------" -ForegroundColor Gray
 
@@ -861,10 +883,9 @@ else {
 }
 
 Write-Host ""
-Write-Host "================================================" -ForegroundColor Cyan
-Write-Host "  IMPORTANT: Open a NEW PowerShell window      " -ForegroundColor Yellow
-Write-Host "  before running any Graph commands.           " -ForegroundColor Yellow
-Write-Host "================================================" -ForegroundColor Cyan
+Write-Host "  IMPORTANT: Open a NEW PowerShell window before running any Graph commands." -ForegroundColor Yellow
+Write-Host ""
+Write-Host "  Total time: $TimeFormatted" -ForegroundColor Cyan
 Write-Host ""
 
 # Stop the background title updater and restore original title
@@ -872,3 +893,5 @@ $script:TitleState.IsRunning = $false
 Start-Sleep -Milliseconds 600  # Give runspace time to restore title
 $script:TitleRunspace.Close()
 $script:TitleRunspace.Dispose()
+
+Read-Host "  Press Enter to exit"

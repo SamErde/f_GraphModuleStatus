@@ -7,6 +7,37 @@
 $script:UpdateScriptPath = Join-Path $PSScriptRoot "Update-MicrosoftGraph.ps1"
 
 ##############################################################################
+# Get-LatestPSGalleryVersion
+# Fast version check via URL redirect — no download, 5-second timeout
+# Adapted from Entra-PIM module (github.com/markdomansky/Entra-PIM)
+##############################################################################
+function Get-LatestPSGalleryVersion {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Name
+    )
+    try {
+        $Url = "https://www.powershellgallery.com/packages/$Name"
+        try {
+            $null = Invoke-WebRequest -Uri $Url -UseBasicParsing -MaximumRedirection 0 -TimeoutSec 5 -ErrorAction Stop
+        }
+        catch {
+            if ($_.Exception.Response -and $_.Exception.Response.Headers) {
+                try {
+                    $Location = $_.Exception.Response.Headers.GetValues('Location') | Select-Object -First 1
+                    if ($Location) {
+                        return [version](Split-Path -Path $Location -Leaf)
+                    }
+                }
+                catch { }
+            }
+        }
+    }
+    catch { }
+    return $null
+}
+
+##############################################################################
 # Get-GraphModuleStatus
 # Shows installed vs available versions of Graph modules
 ##############################################################################
@@ -75,12 +106,11 @@ Function Get-GraphModuleStatus {
             $Status.Installed = $true
             $Status.InstalledVersion = $Installed.Version.ToString()
 
-            # Check for updates
-            $Available = Find-PSResource -Name $Module.Name -Repository PSGallery -ErrorAction SilentlyContinue
-
-            if ($Available) {
-                $Status.AvailableVersion = $Available.Version.ToString()
-                $Status.UpdateAvailable = ($Available.Version -gt $Installed.Version)
+            # Check for updates via fast URL redirect (no download needed)
+            $LatestVersion = Get-LatestPSGalleryVersion -Name $Module.Name
+            if ($LatestVersion) {
+                $Status.AvailableVersion = $LatestVersion.ToString()
+                $Status.UpdateAvailable = ($LatestVersion -gt [version]$Status.InstalledVersion)
             }
 
             if (-not $Silent) {
@@ -99,10 +129,20 @@ Function Get-GraphModuleStatus {
                 }
             }
         } else {
-            # Not installed
+            # Not installed - check what's available on PSGallery via fast URL redirect
+            $LatestVersion = Get-LatestPSGalleryVersion -Name $Module.Name
+            if ($LatestVersion) {
+                $Status.AvailableVersion = $LatestVersion.ToString()
+            }
+
             if (-not $Silent) {
                 Write-Host "  [$($Module.Display)]" -ForegroundColor DarkGray -NoNewline
-                Write-Host " ○ Not installed" -ForegroundColor Red
+                Write-Host " ○ Not installed" -ForegroundColor Red -NoNewline
+                if ($Status.AvailableVersion) {
+                    Write-Host "  (v$($Status.AvailableVersion) available on PSGallery)" -ForegroundColor DarkGray
+                } else {
+                    Write-Host ""
+                }
             }
         }
 
@@ -118,10 +158,139 @@ Function Get-GraphModuleStatus {
     
     if ($UpdatesAvailable -and -not $Silent -and -not $NoPrompt) {
         if (Test-Path -Path $script:UpdateScriptPath) {
-            Write-Host "  Update available! Run " -NoNewline -ForegroundColor Yellow
-            Write-Host "Update-GraphModule" -NoNewline -ForegroundColor Cyan
-            Write-Host " to update." -ForegroundColor Yellow
+            $Response = Read-Host "  Update available. Run Update-GraphModule now? (Y/N)"
+            if ($Response -eq 'Y' -or $Response -eq 'y') {
+                Write-Host ""
+                Update-GraphModule
+            } else {
+                Write-Host ""
+            }
+        }
+    }
+
+    # If none are installed, offer to install them now
+    $NoneInstalled = -not ($Results | Where-Object { $_.Installed -eq $true })
+    $AvailableForInstall = @($Results | Where-Object { $null -ne $_.AvailableVersion })
+
+    if ($NoneInstalled -and $AvailableForInstall.Count -gt 0 -and -not $Silent -and -not $NoPrompt) {
+        Write-Host "  No Microsoft Graph modules are installed." -ForegroundColor Yellow
+        Write-Host "  The following versions are available from PSGallery:" -ForegroundColor Yellow
+        Write-Host ""
+        foreach ($Mod in $AvailableForInstall) {
+            Write-Host "    [$($Mod.Name)]" -ForegroundColor White -NoNewline
+            Write-Host " v$($Mod.AvailableVersion)" -ForegroundColor Cyan
+        }
+        Write-Host ""
+
+        $InstallPrompt = Read-Host "  Would you like to install them now? (Y/N)"
+
+        if ($InstallPrompt -match '^[Yy]') {
             Write-Host ""
+
+            # If more than one module is available, let the user choose which to install
+            $ModulesToInstall = $AvailableForInstall
+            if ($AvailableForInstall.Count -gt 1) {
+                Write-Host "  Which modules would you like to install?" -ForegroundColor Cyan
+                Write-Host ""
+                $i = 1
+                foreach ($Mod in $AvailableForInstall) {
+                    Write-Host "    [$i] $($Mod.Name)  v$($Mod.AvailableVersion)" -ForegroundColor White
+                    $i++
+                }
+                Write-Host "    [A] All  (default)" -ForegroundColor White
+                Write-Host ""
+                $ModChoice = Read-Host "  Enter your choice"
+
+                if ($ModChoice -match '^\d+$') {
+                    $Index = [int]$ModChoice - 1
+                    if ($Index -ge 0 -and $Index -lt $AvailableForInstall.Count) {
+                        $ModulesToInstall = @($AvailableForInstall[$Index])
+                    } else {
+                        Write-Host "  Invalid choice. Installing all modules." -ForegroundColor DarkGray
+                    }
+                }
+                # Any other input (A, Enter, etc.) installs all — no action needed
+                Write-Host ""
+            }
+
+            Write-Host "  Install scope:" -ForegroundColor Cyan
+            Write-Host "    [1] All Users  (Recommended)" -ForegroundColor White
+            Write-Host "    [2] Current User Only" -ForegroundColor White
+            Write-Host ""
+            $ScopeChoice = Read-Host "  Enter your choice (1-2) [default: 1]"
+
+            $InstallScope = if ($ScopeChoice -eq "2") { "CurrentUser" } else { "AllUsers" }
+
+            # All Users requires elevation — auto-launch an elevated session if needed
+            if ($InstallScope -eq "AllUsers") {
+                $IsAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+                if (-not $IsAdmin) {
+                    Write-Host ""
+                    Write-Host "  All Users requires Administrator rights." -ForegroundColor Yellow
+                    Write-Host "  Launching elevated session to complete the installation..." -ForegroundColor Yellow
+                    Write-Host ""
+
+                    $ElevatedParts = @(
+                        "Write-Host ''",
+                        "Write-Host '  Installing Microsoft Graph modules for All Users...' -ForegroundColor Cyan",
+                        "Write-Host ''"
+                    )
+                    foreach ($Mod in $ModulesToInstall) {
+                        $ElevatedParts += "Write-Host '  Installing $($Mod.Name)...' -ForegroundColor Yellow"
+                        $ElevatedParts += "Write-Host '  (This installs all sub-modules and may take several minutes)' -ForegroundColor Gray"
+                        $ElevatedParts += "Write-Host ''"
+                        $ElevatedParts += "Install-PSResource -Name '$($Mod.Name)' -Scope AllUsers -TrustRepository"
+                        $ElevatedParts += "Write-Host ''"
+                        $ElevatedParts += "Write-Host '  $($Mod.Name) installed successfully.' -ForegroundColor Green"
+                        $ElevatedParts += "Write-Host ''"
+                    }
+                    $ElevatedParts += "Write-Host '  Done. Open a new PowerShell window before using Graph commands.' -ForegroundColor Green"
+                    $ElevatedParts += "Write-Host ''"
+                    $ElevatedParts += "Read-Host '  Press Enter to close'"
+
+                    $PwshExe = if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh" } else { "powershell" }
+                    try {
+                        Start-Process $PwshExe -Verb RunAs -ArgumentList "-NoProfile", "-Command", ($ElevatedParts -join '; ') -Wait
+                    }
+                    catch {
+                        Write-Host "  ERROR: Could not launch elevated session - $_" -ForegroundColor Red
+                        Write-Host "  Run PowerShell as Administrator and call Get-GraphModuleStatus again." -ForegroundColor Yellow
+                        Write-Host ""
+                    }
+                    return
+                }
+            }
+
+            $ScopeDisplay = if ($InstallScope -eq "AllUsers") { "All Users" } else { "Current User Only" }
+            Write-Host ""
+            Write-Host "  Modules will be installed for: $ScopeDisplay" -ForegroundColor Gray
+            Write-Host ""
+
+            $InstallSuccess = 0
+            $InstallFailed = 0
+
+            foreach ($Mod in $ModulesToInstall) {
+                Write-Host "  Installing $($Mod.Name) v$($Mod.AvailableVersion)..." -ForegroundColor Yellow
+                Write-Host "  (This installs all sub-modules and may take several minutes)" -ForegroundColor Gray
+                Write-Host ""
+                try {
+                    Install-PSResource -Name $Mod.Name -Scope $InstallScope -TrustRepository -ErrorAction Stop
+                    Write-Host "  $($Mod.Name) installed successfully." -ForegroundColor Green
+                    $InstallSuccess++
+                }
+                catch {
+                    Write-Host "  ERROR: Failed to install $($Mod.Name) - $_" -ForegroundColor Red
+                    $InstallFailed++
+                }
+                Write-Host ""
+            }
+
+            Write-Host "  Install complete: $InstallSuccess succeeded, $InstallFailed failed." -ForegroundColor $(if ($InstallFailed -gt 0) { "Yellow" } else { "Green" })
+            Write-Host ""
+            if ($InstallSuccess -gt 0) {
+                Write-Host "  Open a new PowerShell window before running any Graph commands." -ForegroundColor Yellow
+                Write-Host ""
+            }
         }
     }
 
