@@ -7,7 +7,7 @@
 RootModule = 'GraphModuleStatus.psm1'
 
 # Version number of this module.
-ModuleVersion = '1.0.1'
+ModuleVersion = '1.0.2'
 
 # Supported PSEditions
 CompatiblePSEditions = @('Core', 'Desktop')
@@ -56,7 +56,7 @@ PrivateData = @{
         Tags = @('Microsoft365', 'Graph', 'MicrosoftGraph', 'Admin', 'Module', 'Update')
         LicenseUri = 'https://github.com/markorr321/GraphModuleStatus/blob/main/LICENSE'
         ProjectUri = 'https://github.com/markorr321/GraphModuleStatus'
-        ReleaseNotes = 'Offer to install missing module when only one is installed, with persistent Never dismiss option'
+        ReleaseNotes = 'Simplify missing module prompt to Y/N with silent persistent dismissal on decline'
     }
 }
 

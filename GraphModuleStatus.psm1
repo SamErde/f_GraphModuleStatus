@@ -352,31 +352,28 @@ Function Get-GraphModuleStatus {
     }
 
     # If some modules are installed but others are not, offer to install missing ones
-    # (respects "Never" dismissals stored in user preferences)
+    # Declining dismisses the offer permanently (stored in user preferences)
     $SomeInstalled = ($Results | Where-Object { $_.Installed }) -and $NotInstalledModules.Count -gt 0
     if ($SomeInstalled -and -not $Silent -and -not $NoPrompt) {
         $Prefs = Get-GraphModulePreferences
         $Dismissed = @($Prefs.DismissedInstallOffers)
 
-        # Filter out modules the user has permanently dismissed
+        # Filter out modules the user has previously declined
         $OfferedModules = @($NotInstalledModules | Where-Object { $Dismissed -notcontains $_.Name })
 
         foreach ($Mod in $OfferedModules) {
             $VersionInfo = if ($Mod.AvailableVersion) { " (v$($Mod.AvailableVersion) available)" } else { "" }
-            $Response = Read-Host "  $($Mod.Name) is not installed$VersionInfo. Install it? (Y/N/Never)"
+            $Response = Read-Host "  $($Mod.Name) is not installed$VersionInfo. Install it? (Y/N)"
 
             if ($Response -match '^[Yy]') {
                 Write-Host ""
                 Install-GraphModules -Modules @($Mod)
             }
-            elseif ($Response -match '^[Nn][Ee][Vv][Ee][Rr]$') {
+            else {
+                # Save the dismissal so we don't ask again
                 $Dismissed += $Mod.Name
                 $Prefs.DismissedInstallOffers = $Dismissed
                 Save-GraphModulePreferences -Preferences $Prefs
-                Write-Host "  Got it — you won't be asked about $($Mod.Name) again." -ForegroundColor DarkGray
-                Write-Host ""
-            }
-            else {
                 Write-Host ""
             }
         }
