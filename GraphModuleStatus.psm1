@@ -221,7 +221,7 @@ Function Get-GraphModuleStatus {
     Get-GraphModuleStatus -NoPrompt
 
     .LINK
-    https://github.com/yourusername/GraphModuleStatus
+    https://github.com/markorr321/GraphModuleStatus
     #>
 
     [CmdletBinding()]
@@ -401,7 +401,7 @@ Function Update-GraphModule {
     Update-GraphModule
 
     .LINK
-    https://github.com/yourusername/GraphModuleStatus
+    https://github.com/markorr321/GraphModuleStatus
     #>
 
     [CmdletBinding()]
@@ -436,7 +436,7 @@ Function Add-GraphModuleStatusToProfile {
     Add-GraphModuleStatusToProfile
 
     .LINK
-    https://github.com/yourusername/GraphModuleStatus
+    https://github.com/markorr321/GraphModuleStatus
     #>
 
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
@@ -487,7 +487,7 @@ Function Remove-GraphModuleStatusFromProfile {
     Remove-GraphModuleStatusFromProfile
 
     .LINK
-    https://github.com/yourusername/GraphModuleStatus
+    https://github.com/markorr321/GraphModuleStatus
     #>
 
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]

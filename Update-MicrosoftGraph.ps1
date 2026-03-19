@@ -158,8 +158,7 @@ function Write-Progress-Step {
     param (
         [int]$Step,
         [int]$TotalSteps,
-        [string]$StepName,
-        [string]$Status = "In Progress"
+        [string]$StepName
     )
 
     Update-WindowTitle -CurrentStep "Step $Step of $TotalSteps : $StepName"
