@@ -323,6 +323,10 @@ Write-Progress-Step -Step 2 -TotalSteps $TotalSteps -StepName "Uninstalling exis
 $Iteration = 1
 $MaxIterations = 10
 
+# Suppress native Uninstall-PSResource progress output (the "Removed X of Y files" bars)
+$PrevProgressPreference = $ProgressPreference
+$ProgressPreference = 'SilentlyContinue'
+
 do {
     # Get installed modules via old PowerShellGet (Get-InstalledModule)
     $InstalledModulesOld = @()
@@ -392,18 +396,21 @@ do {
         }
 
         foreach ($Root in ($InstallGroups.Keys | Sort-Object)) {
-            Write-Host "  Uninstalling $Root..." -ForegroundColor Yellow
-            Write-Host "  (This removes all sub-modules)" -ForegroundColor Gray
-            Write-Host ""
+            $GroupModules = $InstallGroups[$Root]
+            $GroupTotal = $GroupModules.Count
+            Write-Host "  Uninstalling $Root ($GroupTotal sub-modules)..." -ForegroundColor Yellow
 
             $PendingCount = 0
             $FailMessages = [System.Collections.Generic.List[string]]::new()
-            foreach ($Module in $InstallGroups[$Root]) {
+            $SubCounter = 0
+            foreach ($Module in $GroupModules) {
+                $SubCounter++
+                Write-Host "`r  Removing $SubCounter of ${GroupTotal}: $($Module.Name)                    " -NoNewline -ForegroundColor Gray
                 $Uninstalled = $false
 
                 # Try Uninstall-PSResource (exact version)
                 try {
-                    Uninstall-PSResource -Name $Module.Name -Version $Module.Version -ErrorAction Stop
+                    Uninstall-PSResource -Name $Module.Name -Version $Module.Version -ErrorAction Stop *>$null
                     $Uninstalled = $true
                 }
                 catch { $LastError = $_.Exception.Message }
@@ -411,7 +418,7 @@ do {
                 # Try Uninstall-PSResource (no version — catches all)
                 if (-not $Uninstalled) {
                     try {
-                        Uninstall-PSResource -Name $Module.Name -ErrorAction Stop
+                        Uninstall-PSResource -Name $Module.Name -ErrorAction Stop *>$null
                         $Uninstalled = $true
                     }
                     catch { $LastError = $_.Exception.Message }
@@ -420,7 +427,7 @@ do {
                 # Fall back to old Uninstall-Module
                 if (-not $Uninstalled) {
                     try {
-                        Uninstall-Module -Name $Module.Name -AllVersions -Force -ErrorAction Stop
+                        Uninstall-Module -Name $Module.Name -AllVersions -Force -ErrorAction Stop *>$null
                         $Uninstalled = $true
                     }
                     catch { $LastError = $_.Exception.Message }
@@ -431,7 +438,7 @@ do {
                     $FailMessages.Add("    $($Module.Name) v$($Module.Version): $LastError")
                 }
             }
-
+            Write-Host "`r$(' ' * 120)`r" -NoNewline
             if ($PendingCount -eq 0) {
                 Write-Host "  $Root uninstalled successfully." -ForegroundColor Green
             } else {
@@ -466,17 +473,20 @@ do {
             }
 
             foreach ($Root in ($OrphanGroups.Keys | Sort-Object)) {
-                Write-Host "  Uninstalling $Root (untracked)..." -ForegroundColor Yellow
-                Write-Host "  (This removes all sub-modules)" -ForegroundColor Gray
-                Write-Host ""
+                $OrphanGroupModules = $OrphanGroups[$Root]
+                $OrphanTotal = $OrphanGroupModules.Count
+                Write-Host "  Uninstalling $Root (untracked, $OrphanTotal sub-modules)..." -ForegroundColor Yellow
 
                 $FailCount = 0
-                foreach ($Module in $OrphanGroups[$Root]) {
+                $OrphanCounter = 0
+                foreach ($Module in $OrphanGroupModules) {
+                    $OrphanCounter++
+                    Write-Host "`r  Removing $OrphanCounter of ${OrphanTotal}: $($Module.Name)                    " -NoNewline -ForegroundColor Gray
                     $Uninstalled = $false
 
                     # Try Uninstall-PSResource first
                     try {
-                        Uninstall-PSResource -Name $Module.Name -ErrorAction Stop
+                        Uninstall-PSResource -Name $Module.Name -ErrorAction Stop *>$null
                         $Uninstalled = $true
                     }
                     catch { }
@@ -484,7 +494,7 @@ do {
                     # Fall back to Uninstall-Module
                     if (-not $Uninstalled) {
                         try {
-                            Uninstall-Module -Name $Module.Name -AllVersions -Force -ErrorAction Stop
+                            Uninstall-Module -Name $Module.Name -AllVersions -Force -ErrorAction Stop *>$null
                             $Uninstalled = $true
                         }
                         catch { }
@@ -499,12 +509,13 @@ do {
                             }
                         }
                         catch {
+                            Write-Host "`r$(' ' * 120)`r" -NoNewline
                             Write-Host "    Failed to remove: $($Module.ModuleBase) - $_" -ForegroundColor Red
                             $FailCount++
                         }
                     }
                 }
-
+                Write-Host "`r$(' ' * 120)`r" -NoNewline
                 if ($FailCount -eq 0) {
                     Write-Host "  $Root removed successfully." -ForegroundColor Green
                 } else {
@@ -528,6 +539,9 @@ do {
     }
 
 } while ($true)
+
+# Restore progress preference after uninstall loop
+$ProgressPreference = $PrevProgressPreference
 
 Write-Host ""
 Write-Host "  Uninstall phase complete." -ForegroundColor Green
