@@ -2,6 +2,8 @@
 
 A PowerShell module that checks the status of Microsoft Graph PowerShell modules and helps keep them up to date.
 
+![Graph module status on PowerShell startup](https://raw.githubusercontent.com/markorr321/GraphModuleStatus/main/docs/images/profile-startup.png)
+
 ## Features
 
 - **Automatic Status Check** - Shows installed vs available versions of Microsoft.Graph and Microsoft.Graph.Beta on PowerShell startup
@@ -58,6 +60,10 @@ Output (when all current):
   [Microsoft.Graph]      v2.26.0 ● Current
   [Microsoft.Graph.Beta] v2.26.0 ● Current
 ```
+
+Once added to your profile, this runs automatically on every new session:
+
+![Both modules reported current on startup](https://raw.githubusercontent.com/markorr321/GraphModuleStatus/main/docs/images/profile-startup.png)
 
 Output (when not installed):
 ```
@@ -226,6 +232,38 @@ The update script prompts you to:
 - **Choose the installation scope** (All Users or Current User)
 
 A real-time elapsed timer is shown in the window title bar during the process.
+
+### Walkthrough
+
+The screenshots below are from a single end-to-end run: both Graph modules were
+uninstalled from All Users scope and reinstalled from scratch.
+
+**Starting the update.** `Update-GraphModule` self-elevates to Administrator, prints
+the plan, and scans for what is currently installed.
+
+![Update script banner listing the six steps](https://raw.githubusercontent.com/markorr321/GraphModuleStatus/main/docs/images/update-start.png)
+
+**Steps 1–2: choose what to uninstall.** The script reports the versions it discovered,
+asks which module family to remove, then clears them from the session and begins the
+iterative uninstall.
+
+![Uninstall prompt followed by steps 1 and 2 running](https://raw.githubusercontent.com/markorr321/GraphModuleStatus/main/docs/images/update-uninstall-picker.png)
+
+**Steps 2–3: uninstall and folder cleanup.** Sub-modules are removed through both
+package managers, then any orphaned folders left behind are deleted — 124 leftover
+items in this run.
+
+![Uninstall completing and 124 leftover folders removed](https://raw.githubusercontent.com/markorr321/GraphModuleStatus/main/docs/images/update-uninstall.png)
+
+**Step 4: reinstall.** You pick the modules and the scope, then both packages install
+from PowerShell Gallery.
+
+![Install and scope prompts followed by both packages installing](https://raw.githubusercontent.com/markorr321/GraphModuleStatus/main/docs/images/update-progress.png)
+
+**Steps 5–6: import and validate.** `Microsoft.Graph.Authentication` is imported for
+immediate use, and the final summary confirms the installed versions match.
+
+![Validation summary showing matching versions and STATUS: SUCCESS](https://raw.githubusercontent.com/markorr321/GraphModuleStatus/main/docs/images/update-complete.png)
 
 This resolves common issues like:
 - "Assembly with same name is already loaded"
